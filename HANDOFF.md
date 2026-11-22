@@ -14,22 +14,23 @@
   - 另有一份自建镜像：`https://github.com/yingxingyswx-design/io.github.yingxingyswx_design.wechatglass`
 - 包名：`io.github.yingxingyswx_design.wechatglass`（versionCode 1 / versionName 1.0）
   - 旧包 `com.wechatglass` 已废弃并卸载（Store 拒过：com.* 域名式包名无 TXT 验证）。
-- 产物：`out/wechat-glass-1.0.apk`（约 1.05 MB）
+- 产物：`out/wechat-glass-1.1.apk`（v1.1，约 1.10 MB）
 
 ## 2. 构建 / 安装 / 测试
 
 ```powershell
 cd C:\codes\模块\wechat_chat_ui
-powershell -NoProfile -ExecutionPolicy Bypass -File .\build.ps1 -DebugSigning
-# 先确认 BUILD_OK，再安装，避免装到旧包
-adb push out\wechat-glass-1.0.apk /data/local/tmp/wg.apk
+.\gradlew.bat :app:assembleRelease
+# 构建成功且 out\wechat-glass-1.1.apk 时间戳更新后再安装
+adb push out\wechat-glass-1.1.apk /data/local/tmp/wg.apk
 adb shell pm install -r --user 0 /data/local/tmp/wg.apk
 adb shell pm install -r --user 10 /data/local/tmp/wg.apk
 adb shell am force-stop --user 0 com.tencent.mm
 adb shell am start --user 0 -n com.tencent.mm/.ui.LauncherUI
 ```
 
-- 构建没有 Gradle：`aapt2 compile/link` + `javac --release 8` + `d8` + `zipalign` + `apksigner`，脚本 `build.ps1`。
+- 2026-11-23 起构建已迁移到 Gradle：AGP 9.4.1 / Gradle 9.8.2 / JDK 17 / compileSdk 36，`local.properties` 指向本机 SDK；release 用 `debug.keystore` 签名，和历史安装包一致。
+- 旧的 `build.ps1`（aapt2 + javac + d8 + zipalign + apksigner）保留作离线回退，见 `README.md`。
 - 设备：Xiaomi 2211133C（fuxi），用户 `0:Henry`、`10:壶中界`；adb serial 常为 `c412785e`，偶尔掉线。
 - 模块日志 tag：`WeChatGlass`（用 `android.util.Log`，不是 XposedBridge.log）。
 - 崩溃/现象排查：`adb logcat -c` → 复现 → `adb logcat -d -v threadtime > debug/full_*.txt`。
@@ -133,7 +134,34 @@ adb shell am start --user 0 -n com.tencent.mm/.ui.LauncherUI
 - 点击坐标：底部 tab 约 `(250,2270)=微信`、`(440,2270)=通讯录`、`(620,2270)=发现`、`(800,2270)=我`。
 - 切 tab 复现：`input tap 440 2270` → `input tap 250 2270`。
 
-## 12. 近期关键提交
+## 12. 2026-11-23：M3E 全量方向
+
+用户已确认：**全量使用 Material 3 Expressive**（聊天、通讯录、发现、我统一设计语言），
+动态色彩基于系统 Monet，默认微信绿。完整规范见 [docs/M3E设计规范.md](docs/M3E设计规范.md)。
+
+已落地设计系统底座（`com.wechatglass.m3`：`M3ColorScheme` / `M3Theme` / `M3Type` /
+`M3Motion` / `M3Shape` / `M3Drawable`），下一步按 R2–R6 分轮替换页面：
+微信页 → 通讯录 → 发现 → 我 → 聊天悬浮层/底部导航。
+
+边界：聊天消息列表/气泡仍由微信原生 RecyclerView/item 渲染，模块只重绘 item 的
+背景/圆角/字体/间距，不替换消息引擎和点击逻辑；每轮 Gradle 构建、真机验证、
+`publish.ps1` 提交。
+
+## 13. 2026-11-23：LiquidGlass 底栏移植
+
+`com.wechatglass.liquidtab` 已从 [WeChat-LiquidGlass](https://github.com/liuran001/WeChat-LiquidGlass)
+（MIT）移植底栏：`LiquidGlassInstaller` / `TabBarBridge` / `LiquidGlassHostLayout` /
+`DropletPanel` / `DropletDragController` 等。libxposed API 102 的 hook 桥已换成我们的
+legacy Xposed API 82（`LiquidGlassModule` shim），作用域只传 `HostApp.WECHAT`。
+
+踩坑：微信自己的 `BlurView` 会把 DecorView 画进软件 Canvas，`LiquidGlassPanel` 的
+AGSL 高光会抛 `Software rendering doesn't support RuntimeShader`；已在
+`drawInteractiveHighlight` 加 `canvas.isHardwareAccelerated()` 判断，软件路径跳过高光。
+
+冲突检测只移除原模块的 `com.tencent.mm` scope，保留 QQ。App 顶部运行状态显示
+Root / LSPosed 注入 / 原模块冲突。
+
+## 14. 近期关键提交
 
 - `7544fbc` important: 新 App 图标（自适应 + 传统）
 - `ffe200b` fix: 切换器玻璃恢复（先解析 home 列表再装页面）

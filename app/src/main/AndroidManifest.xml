@@ -1,12 +1,12 @@
 <?xml version="1.0" encoding="utf-8"?>
-<manifest xmlns:android="http://schemas.android.com/apk/res/android"
-    package="io.github.yingxingyswx_design.wechatglass"
-    android:versionCode="1"
-    android:versionName="1.0">
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
-    <uses-sdk
-        android:minSdkVersion="24"
-        android:targetSdkVersion="34" />
+    <!-- Android 11+ package visibility: we only need to see the module we
+         integrate (WeChat-LiquidGlass) and the LSPosed manager. -->
+    <queries>
+        <package android:name="io.github.liuran001.mmliquidglass" />
+        <package android:name="org.lsposed.manager" />
+    </queries>
 
     <application
         android:allowBackup="false"

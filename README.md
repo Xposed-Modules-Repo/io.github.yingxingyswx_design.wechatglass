@@ -11,6 +11,7 @@
 - **会话列表**：可选 Material Design 风格的自建列表，含「置顶 / 未置顶」分组、头像、时间排序与消息类型预览（贴纸 / 图片 / 语音 / App 标题）。
 - **聊天页**：顶部栏换成悬浮玻璃，表情面板与「+」面板同样玻璃化。
 - **聊天背景**：液态玻璃会采样一张壁纸并做模糊，得到真正的“壁纸透过玻璃”的效果。
+- **底部导航**：整合 [WeChat-LiquidGlass](https://github.com/liuran001/WeChat-LiquidGlass)（MIT）的悬浮液态玻璃底栏、水滴选中态与拖拽/弹簧动效；只作用于微信，QQ 不受影响。
 
 ## ⚠️ 重要：聊天页的壁纸模糊需要先指定壁纸
 
@@ -21,6 +22,11 @@
 3. 回到微信进入聊天页，玻璃后面就是这张壁纸的模糊。
 
 不选壁纸时，玻璃没有壁纸可采样，只会显示内容/纯色，**看起来就像没有模糊**——这不是 bug，是还没指定壁纸。
+
+## 设计规范
+
+完整的 Material 3 Expressive 规范、颜色/排版/形状/动效 token、四个主页面的布局蓝图和分轮验收标准见
+[docs/M3E设计规范.md](docs/M3E设计规范.md)。后续所有自定义 UI 都以这份文档为准。
 
 ## 环境
 
@@ -38,22 +44,44 @@
 
 ## 配置项
 
+- **运行状态**：App 顶部显示 Root、LSPosed 是否已注入微信、原模块是否仍勾选微信。
 - **开启液态玻璃（增加封号风险）**：总开关。
 - **启用 Material Design 设计风格（实验）**：自建会话列表；关闭则用微信原生列表（更稳定，含小程序 / 已登入设备 / 置顶笔记）。
 - **强制停止微信 / 打开微信**：改完配置后快速重启微信。
+- **冲突检测**：检测已安装的 `WeChat-LiquidGlass`；要求 root / LSPosed `lspctl` 时
+  只移除它的**微信作用域**，保留 QQ 等其它作用域；没有 root 时只提示，不全局停用。
 - **背景壁纸**：聊天页玻璃采样的壁纸。
 
 ## 构建
 
-仓库不带 Gradle，使用 `build.ps1`（aapt2 + javac + d8 + zipalign + apksigner）：
+推荐使用 Gradle（Android Studio 可直接打开本工程）：
+
+```powershell
+.\gradlew.bat :app:assembleRelease
+```
+
+- AGP 9.4.1 / Gradle 9.8.2，JDK 17，compileSdk 36 / minSdk 24 / targetSdk 34；
+- `local.properties` 指向本机 Android SDK（已在 `.gitignore` 中）；
+- release 构建使用仓库里的 `debug.keystore`，签名与历史安装包一致；
+- 产物：`out/wechat-glass-1.1.apk`。
+
+旧的 `build.ps1`（aapt2 + javac + d8 + zipalign + apksigner）保留作离线回退：
 
 ```powershell
 .\build.ps1 -DebugSigning
 ```
 
-产物：`out/wechat-glass-1.0.apk`。
+## 特别鸣谢
+
+- [liuran001/WeChat-LiquidGlass](https://github.com/liuran001/WeChat-LiquidGlass)（MIT）：
+  底部导航栏液态玻璃、水滴拖拽与弹簧动效。本模块的 `liquidtab` 包由该项目移植/改编，
+  并按 MIT 许可保留版权与许可声明，完整许可见
+  [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)。
 
 ## 已知问题
 
 - 自建列表（实验）在部分机型上与微信 ViewPager 的页面回收有冲突，可能出现切 tab 抖动/重影；默认的原生列表不受影响。
+- 底栏的 AGSL 高光在微信 `BlurView` 的软件采样路径下会自动跳过（否则 `RuntimeShader` 会抛
+  `Software rendering doesn't support RuntimeShader`），因此部分截图里材质会偏平；这是有意的安全降级。
+- 消息列表/气泡的 M3E 重绘仍在后续轮次，当前版本只整合了底栏。
 - 模块按微信 8.0.79 的类名适配，微信升级后可能失效。
