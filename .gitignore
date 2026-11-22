@@ -1,0 +1,6 @@
+﻿out/
+debug/
+analysis/
+release/
+backups/
+*.zip

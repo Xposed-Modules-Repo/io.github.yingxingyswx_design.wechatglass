@@ -1,0 +1,532 @@
+package com.wechatglass;
+
+import android.app.Activity;
+import android.content.res.Configuration;
+import android.os.Bundle;
+import android.view.View;
+import android.view.ViewGroup;
+
+import de.robv.android.xposed.IXposedHookLoadPackage;
+import de.robv.android.xposed.XC_MethodHook;
+import de.robv.android.xposed.XposedBridge;
+import de.robv.android.xposed.XposedHelpers;
+import de.robv.android.xposed.callbacks.XC_LoadPackage;
+
+/**
+ * Minimal hook surface: two WeChat UI classes (HomeUI.u, ChatFooter.r1), the
+ * ActionBarContainer visibility guard, and the two UI shells' lifecycle.
+ * No draw/status-bar/inset hooks are registered.
+ */
+public class HookEntry implements IXposedHookLoadPackage {
+
+    private static final String WECHAT = "com.tencent.mm";
+    private static final String CHATTING_UI = "com.tencent.mm.ui.chatting.ChattingUI";
+    private static final String LAUNCHER_UI = "com.tencent.mm.ui.LauncherUI";
+    private static final String TAG = "WeChatGlass";
+
+    @Override
+    public void handleLoadPackage(XC_LoadPackage.LoadPackageParam lpparam) {
+        if (lpparam == null || !WECHAT.equals(lpparam.packageName)) {
+            return;
+        }
+        try {
+            hookExactBarVisibility(lpparam);
+            hookChatLifecycle(lpparam);
+            hookHomeLifecycle(lpparam);
+            hookResume(CHATTING_UI, lpparam, true);
+            hookResume(LAUNCHER_UI, lpparam, false);
+            hookHomeAdapterSetter(lpparam.classLoader);
+            hookHomeBottomTab(lpparam.classLoader);
+            XposedBridge.log(TAG + " hooks installed for " + WECHAT);
+        } catch (Throwable throwable) {
+            XposedBridge.log(TAG + " hook install failed: " + throwable);
+        }
+    }
+
+    private static void hookChatLifecycle(final XC_LoadPackage.LoadPackageParam lpparam) {
+        hookPanelBgMethods(lpparam.classLoader);
+        hookLogPanelBg(lpparam.classLoader);
+        hookFreGriest(lpparam.classLoader);
+        hookShadowLoader();
+        XposedHelpers.findAndHookMethod(CHATTING_UI, lpparam.classLoader, "onCreate",
+                Bundle.class, new XC_MethodHook() {
+                    @Override
+                    protected void afterHookedMethod(MethodHookParam param) {
+                        try {
+                            if (param.thisObject instanceof Activity) {
+                                ChatGlassHook.attach((Activity) param.thisObject);
+                            }
+                        } catch (Throwable throwable) {
+                            XposedBridge.log(TAG + " attach failed: " + throwable);
+                        }
+                    }
+                });
+
+        XposedHelpers.findAndHookMethod(CHATTING_UI, lpparam.classLoader,
+                "onConfigurationChanged", Configuration.class, new XC_MethodHook() {
+                    @Override
+                    protected void afterHookedMethod(MethodHookParam param) {
+                        try {
+                            if (param.thisObject instanceof Activity) {
+                                ChatGlassHook.attach((Activity) param.thisObject);
+                            }
+                        } catch (Throwable throwable) {
+                            XposedBridge.log(TAG + " config refresh failed: " + throwable);
+                        }
+                    }
+                });
+
+        XposedHelpers.findAndHookMethod(CHATTING_UI, lpparam.classLoader, "onDestroy",
+                new XC_MethodHook() {
+                    @Override
+                    protected void afterHookedMethod(MethodHookParam param) {
+                        try {
+                            if (param.thisObject instanceof Activity) {
+                                ChatGlassHook.detach((Activity) param.thisObject);
+                            }
+                        } catch (Throwable throwable) {
+                            XposedBridge.log(TAG + " detach failed: " + throwable);
+                        }
+                    }
+                });
+    }
+
+    private static void hookHomeLifecycle(final XC_LoadPackage.LoadPackageParam lpparam) {
+        XposedHelpers.findAndHookMethod(LAUNCHER_UI, lpparam.classLoader, "onCreate",
+                Bundle.class, new XC_MethodHook() {
+                    @Override
+                    protected void afterHookedMethod(MethodHookParam param) {
+                        try {
+                            if (param.thisObject instanceof Activity) {
+                                HomeGlassHook.attach((Activity) param.thisObject);
+                            }
+                        } catch (Throwable throwable) {
+                            XposedBridge.log(TAG + " home attach failed: " + throwable);
+                        }
+                    }
+                });
+
+        XposedHelpers.findAndHookMethod(LAUNCHER_UI, lpparam.classLoader, "onDestroy",
+                new XC_MethodHook() {
+                    @Override
+                    protected void afterHookedMethod(MethodHookParam param) {
+                        try {
+                            if (param.thisObject instanceof Activity) {
+                                HomeGlassHook.detach((Activity) param.thisObject);
+                            }
+                        } catch (Throwable throwable) {
+                            XposedBridge.log(TAG + " home detach failed: " + throwable);
+                        }
+                    }
+                });
+
+        XposedHelpers.findAndHookMethod(LAUNCHER_UI, lpparam.classLoader,
+                "onConfigurationChanged", Configuration.class, new XC_MethodHook() {
+                    @Override
+                    protected void afterHookedMethod(MethodHookParam param) {
+                        try {
+                            if (param.thisObject instanceof Activity) {
+                                HomeGlassHook.attach((Activity) param.thisObject);
+                            }
+                        } catch (Throwable throwable) {
+                            XposedBridge.log(TAG + " home config failed: " + throwable);
+                        }
+                    }
+                });
+    }
+
+    private static void hookResume(String className, XC_LoadPackage.LoadPackageParam lpparam,
+                                   final boolean chat) {
+        try {
+            XposedHelpers.findAndHookMethod(className, lpparam.classLoader, "onResume",
+                    new XC_MethodHook() {
+                        @Override
+                        protected void afterHookedMethod(MethodHookParam param) {
+                            try {
+                                if (!(param.thisObject instanceof Activity)) {
+                                    return;
+                                }
+                                Activity activity = (Activity) param.thisObject;
+                                if (chat) {
+                                    ChatGlassHook.reapplyStatusBar(activity);
+                                } else {
+                                    HomeGlassHook.reapplyStatusBar(activity);
+                                }
+                            } catch (Throwable throwable) {
+                                XposedBridge.log(TAG + " resume failed: " + throwable);
+                            }
+                        }
+                    });
+        } catch (Throwable throwable) {
+            XposedBridge.log(TAG + " resume hook skipped for " + className);
+        }
+    }
+
+    /**
+     * WeChat's target-35 fix pushes the ActionBar container down by the status
+     * bar height; cancel the margin right after WeChat sets it.
+     */
+    /**
+     * WeChat sets the home conversation adapter from MainUI and can do it again
+     * on resume, which would silently drop our filtered wrapper. Re-wrap right
+     * after it hands the adapter to the ListView.
+     */
+    private static void hookHomeAdapterSetter(ClassLoader cl) {
+        try {
+            XposedHelpers.findAndHookMethod("iq5.a1", cl, "Z",
+                    android.widget.ListView.class, new XC_MethodHook() {
+                        @Override
+                        protected void afterHookedMethod(MethodHookParam param) {
+                            try {
+                                Object target = param.args[0];
+                                if (target instanceof android.widget.ListView) {
+                                    HomeConversationFilter.attach(
+                                            (android.widget.ListView) target);
+                                }
+                            } catch (Throwable ignored) {
+                            }
+                        }
+                    });
+            XposedBridge.log(TAG + " home filter hooked: iq5.a1.Z");
+        } catch (Throwable throwable) {
+            XposedBridge.log(TAG + " home filter Z skipped: " + throwable);
+        }
+    }
+
+    /**
+     * Tracks the bottom tab through LauncherUIBottomTabView.setTo(int) so the
+     * floating home bar follows the actual page instead of guessing from the
+     * title text (the "Me" page has no title at all).
+     */
+    private static void hookHomeBottomTab(ClassLoader cl) {
+        try {
+            XposedHelpers.findAndHookMethod(
+                    "com.tencent.mm.ui.LauncherUIBottomTabView", cl, "setTo",
+                    int.class, new XC_MethodHook() {
+                        @Override
+                        protected void afterHookedMethod(MethodHookParam param) {
+                            try {
+                                Object tab = param.args[0];
+                                if (tab instanceof Integer) {
+                                    HomeGlassHook.onBottomTab((Integer) tab);
+                                }
+                            } catch (Throwable ignored) {
+                            }
+                        }
+                    });
+            XposedBridge.log(TAG + " bottom tab hooked");
+        } catch (Throwable throwable) {
+            XposedBridge.log(TAG + " bottom tab hook skipped: " + throwable);
+        }
+    }
+
+    private static void hookHomeUiTopMargin(final XC_LoadPackage.LoadPackageParam lpparam) {
+        try {
+            XposedHelpers.findAndHookMethod("com.tencent.mm.ui.HomeUI",
+                    lpparam.classLoader, "u", Activity.class, View.class,
+                    new XC_MethodHook() {
+                        @Override
+                        protected void afterHookedMethod(MethodHookParam param) {
+                            try {
+                                View view = (View) param.args[1];
+                                if (view == null) {
+                                    return;
+                                }
+                                if (view.getClass().getName().contains("ActionBarOverlayLayout")) {
+                                    return;
+                                }
+                                ViewGroup.LayoutParams params = view.getLayoutParams();
+                                if (params instanceof ViewGroup.MarginLayoutParams) {
+                                    ViewGroup.MarginLayoutParams margins =
+                                            (ViewGroup.MarginLayoutParams) params;
+                                    if (margins.topMargin != 0) {
+                                        margins.topMargin = 0;
+                                        view.setLayoutParams(margins);
+                                    }
+                                }
+                            } catch (Throwable ignored) {
+                            }
+                        }
+                    });
+        } catch (Throwable throwable) {
+            XposedBridge.log(TAG + " HomeUI margin hook skipped: " + throwable);
+        }
+    }
+
+    private static int readInt(Object target, String name) {
+        try {
+            Object value = XposedHelpers.getObjectField(target, name);
+            if (value instanceof Number) return ((Number) value).intValue();
+            if (value instanceof Boolean) return ((Boolean) value) ? 1 : 0;
+        } catch (Throwable ignored) {
+        }
+        return -1;
+    }
+
+    private static void hookChatFooterPanel(final XC_LoadPackage.LoadPackageParam lpparam) {
+        try {
+            XposedHelpers.findAndHookMethod(
+                    "com.tencent.mm.pluginsdk.ui.chat.ChatFooter",
+                    lpparam.classLoader, "r1", int.class,
+                    new XC_MethodHook() {
+                        @Override
+                        protected void afterHookedMethod(MethodHookParam param) {
+                            try {
+                                Object footer = param.thisObject;
+                                int x2 = readInt(footer, "x2");
+                                if (x2 != 2) return;
+                                View contextView = (View) footer;
+                                float xdpi = contextView.getResources()
+                                        .getDisplayMetrics().xdpi;
+                                int reduce = Math.max(1,
+                                        Math.round(0.15f / 2.54f * xdpi));
+                                int v2 = readInt(footer, "V2");
+                                int t2 = readInt(footer, "T2");
+                                v2 = Math.max(1, v2 - reduce);
+                                t2 = Math.max(1, t2 - reduce);
+                                XposedHelpers.setIntField(footer, "V2", v2);
+                                XposedHelpers.setIntField(footer, "T2", t2);
+                                Object z = XposedHelpers.getObjectField(footer, "z");
+                                if (z instanceof View) {
+                                    ViewGroup.LayoutParams lp =
+                                            ((View) z).getLayoutParams();
+                                    if (lp != null) {
+                                        lp.height = t2;
+                                        ((View) z).setLayoutParams(lp);
+                                    }
+                                }
+                                Object panel = XposedHelpers.getObjectField(footer, "h");
+                                if (panel != null) {
+                                    XposedHelpers.callMethod(panel, "setPortHeighPx", v2);
+                                    XposedHelpers.callMethod(panel, "C");
+                                }
+                            } catch (Throwable throwable) {
+                                XposedBridge.log(TAG + " panel r1 failed: " + throwable);
+                            }
+                        }
+                    });
+        } catch (Throwable throwable) {
+            XposedBridge.log(TAG + " panel hook skipped: " + throwable);
+        }
+    }
+
+    /**
+     * Keep the native home ActionBar hidden. Only the container is hooked:
+     * GONE on the parent hides the Toolbar/ActionMenuView as well.
+     */
+    private static void hookExactBarVisibility(final XC_LoadPackage.LoadPackageParam lpparam) {
+        XC_MethodHook hook = new XC_MethodHook() {
+            @Override
+            protected void beforeHookedMethod(MethodHookParam param) {
+                try {
+                    if (((Integer) param.args[0]) != View.VISIBLE
+                            || !(param.thisObject instanceof View)) {
+                        return;
+                    }
+                    View view = (View) param.thisObject;
+                    if (isLauncherContext(view.getContext())) {
+                        param.args[0] = View.GONE;
+                    }
+                } catch (Throwable ignored) {
+                }
+            }
+        };
+        try {
+            XposedHelpers.findAndHookMethod(
+                    "androidx.appcompat.widget.ActionBarContainer",
+                    lpparam.classLoader, "setVisibility", int.class, hook);
+        } catch (Throwable throwable) {
+            XposedBridge.log(TAG + " visibility hook skipped: " + throwable);
+        }
+    }
+
+    private static boolean isLauncherContext(android.content.Context context) {
+        while (context instanceof android.content.ContextWrapper) {
+            if (context.getClass().getName().contains("LauncherUI")) {
+                return true;
+            }
+            context = ((android.content.ContextWrapper) context).getBaseContext();
+        }
+        return context != null && context.getClass().getName().contains("LauncherUI");
+    }
+
+    private static boolean inPanel(android.view.View v) {
+        String self = v.getClass().getSimpleName();
+        if (self.contains("Smiley") || self.contains("Emoji")
+                || self.contains("AppPanel") || self.contains("NestedBounce")
+                || self.contains("ChatFooter")) {
+            return true;
+        }
+        android.view.ViewParent p = v.getParent();
+        int guard = 0;
+        while (p instanceof android.view.View && guard++ < 12) {
+            String cn = p.getClass().getSimpleName();
+            if (cn.contains("Smiley") || cn.contains("Emoji") || cn.contains("AppPanel")
+                    || cn.contains("NestedBounce") || cn.contains("ChatFooter")) {
+                return true;
+            }
+            p = ((android.view.View) p).getParent();
+        }
+        return false;
+    }
+
+    private static void hookBlockPanelBg() { // blockPanelBg
+        try {
+            de.robv.android.xposed.XposedHelpers.findAndHookMethod(
+                    android.view.View.class, "setBackgroundResource", int.class,
+                    new de.robv.android.xposed.XC_MethodHook() {
+                        @Override protected void beforeHookedMethod(MethodHookParam p) {
+                            if (inPanel((android.view.View) p.thisObject)) p.setResult(null);
+                        }
+                    });
+            de.robv.android.xposed.XposedHelpers.findAndHookMethod(
+                    android.view.View.class, "setBackground",
+                    android.graphics.drawable.Drawable.class,
+                    new de.robv.android.xposed.XC_MethodHook() {
+                        @Override protected void beforeHookedMethod(MethodHookParam p) {
+                            if (inPanel((android.view.View) p.thisObject)) p.setResult(null);
+                        }
+                    });
+            de.robv.android.xposed.XposedHelpers.findAndHookMethod(
+                    android.view.View.class, "setBackgroundColor", int.class,
+                    new de.robv.android.xposed.XC_MethodHook() {
+                        @Override protected void beforeHookedMethod(MethodHookParam p) {
+                            if (inPanel((android.view.View) p.thisObject)) p.setResult(null);
+                        }
+                    });
+        } catch (Throwable ignored) {
+        }
+    }
+
+
+    private static void hookPanelBgMethods(ClassLoader cl) { // hookPanelBgMethods
+        // SmileyPanelImpl.setPanelBackgroundColor writes an opaque colour onto
+        // the emoji content container (NestedBounceView) every time the panel
+        // opens, which paints over the panel's liquid glass. The other names are
+        // the tab-bar variants and older releases' API.
+        String[] names = {"setEmojiPanelBackground", "setEmojiPanelTabBackground",
+                "setPanelBackground", "setPanelBackgroundColor",
+                "setTabBackgroundColor", "setTabBackgroundResource"};
+        for (String n : names) {
+            try {
+                de.robv.android.xposed.XposedHelpers.findAndHookMethod(
+                        "com.tencent.mm.view.SmileyPanelImpl", cl, n, int.class,
+                        new de.robv.android.xposed.XC_MethodHook() {
+                            @Override protected void beforeHookedMethod(MethodHookParam p) {
+                                p.setResult(null);
+                            }
+                        });
+            } catch (Throwable ignored) {
+            }
+        }
+    }
+
+
+    private static final java.util.HashSet<String> SEEN_BG = new java.util.HashSet<>();
+
+    private static void hookLogPanelBg(ClassLoader cl) { // hookLogPanelBg
+        try {
+            de.robv.android.xposed.XposedHelpers.findAndHookMethod(
+                    android.view.View.class, "setBackgroundResource", int.class,
+                    new de.robv.android.xposed.XC_MethodHook() {
+                        @Override protected void beforeHookedMethod(MethodHookParam p) {
+                            try {
+                                android.view.View v = (android.view.View) p.thisObject;
+                                if (!inPanel(v)) return;
+                                StackTraceElement[] st = new Throwable().getStackTrace();
+                                StringBuilder sb = new StringBuilder("CB bgCaller "
+                                        + v.getClass().getSimpleName());
+                                for (int i = 1; i < Math.min(st.length, 9); i++) {
+                                    sb.append(" <- ").append(st[i].getClassName())
+                                      .append("#").append(st[i].getMethodName());
+                                }
+                                String line = sb.toString();
+                                if (SEEN_BG.add(line)) {
+                                    android.util.Log.i("WeChatGlass", line);
+                                }
+                            } catch (Throwable ignored) { }
+                        }
+                    });
+        } catch (Throwable ignored) {
+        }
+    }
+
+
+    private static void hookFreGriest(ClassLoader cl) { // hookFreGriest
+        try {
+            Class<?> c = de.robv.android.xposed.XposedHelpers.findClass(
+                    "android$net$FreGriest", cl);
+            de.robv.android.xposed.XposedBridge.hookAllMethods(c, "setBackgroundResource",
+                    new de.robv.android.xposed.XC_MethodHook() {
+                        @Override protected void beforeHookedMethod(MethodHookParam p) {
+                            if (p.thisObject instanceof android.view.View
+                                    && inPanel((android.view.View) p.thisObject)) {
+                                p.setResult(null);
+                                android.util.Log.i("WeChatGlass", "CB block FreGriest bg");
+                            }
+                        }
+                    });
+            de.robv.android.xposed.XposedBridge.hookAllMethods(c, "setBackground",
+                    new de.robv.android.xposed.XC_MethodHook() {
+                        @Override protected void beforeHookedMethod(MethodHookParam p) {
+                            if (p.thisObject instanceof android.view.View
+                                    && inPanel((android.view.View) p.thisObject)) {
+                                p.setResult(null);
+                            }
+                        }
+                    });
+            de.robv.android.xposed.XposedBridge.hookAllMethods(c, "setBackgroundColor",
+                    new de.robv.android.xposed.XC_MethodHook() {
+                        @Override protected void beforeHookedMethod(MethodHookParam p) {
+                            if (p.thisObject instanceof android.view.View
+                                    && inPanel((android.view.View) p.thisObject)) {
+                                p.setResult(null);
+                            }
+                        }
+                    });
+        } catch (Throwable t) {
+            android.util.Log.e("WeChatGlass", "CB FreGriest hook fail", t);
+        }
+    }
+
+
+    private static boolean SHADOW_HOOKED;
+
+    private static void hookShadowLoader() { // hookShadowLoader
+        try {
+            de.robv.android.xposed.XposedHelpers.findAndHookMethod(
+                    ClassLoader.class, "loadClass", String.class, boolean.class,
+                    new de.robv.android.xposed.XC_MethodHook() {
+                        @Override protected void afterHookedMethod(MethodHookParam p) {
+                            if (SHADOW_HOOKED) return;
+                            Object r = p.getResult();
+                            if (!(r instanceof Class)) return;
+                            Class<?> c = (Class<?>) r;
+                            String n = c.getName();
+                            if (!n.contains("FreGriest")) return;
+                            SHADOW_HOOKED = true;
+                            android.util.Log.i("WeChatGlass", "CB shadow found " + n);
+                            String[] ms = {"setBackgroundResource", "setBackground",
+                                    "setBackgroundColor", "setBackgroundDrawable"};
+                            for (String m : ms) {
+                                try {
+                                    de.robv.android.xposed.XposedBridge.hookAllMethods(c, m,
+                                            new de.robv.android.xposed.XC_MethodHook() {
+                                                @Override protected void beforeHookedMethod(
+                                                        MethodHookParam q) {
+                                                    if (q.thisObject instanceof android.view.View
+                                                            && inPanel((android.view.View) q.thisObject)) {
+                                                        q.setResult(null);
+                                                    }
+                                                }
+                                            });
+                                } catch (Throwable ignored) { }
+                            }
+                        }
+                    });
+        } catch (Throwable t) {
+            android.util.Log.e("WeChatGlass", "CB loader hook fail", t);
+        }
+    }
+
+}
