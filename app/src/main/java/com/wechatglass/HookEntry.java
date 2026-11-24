@@ -48,9 +48,7 @@ public class HookEntry implements IXposedHookLoadPackage {
 
     private static void hookChatLifecycle(final XC_LoadPackage.LoadPackageParam lpparam) {
         hookPanelBgMethods(lpparam.classLoader);
-        hookLogPanelBg(lpparam.classLoader);
         hookFreGriest(lpparam.classLoader);
-        hookShadowLoader();
         XposedHelpers.findAndHookMethod(CHATTING_UI, lpparam.classLoader, "onCreate",
                 Bundle.class, new XC_MethodHook() {
                     @Override
@@ -58,6 +56,7 @@ public class HookEntry implements IXposedHookLoadPackage {
                         try {
                             if (param.thisObject instanceof Activity) {
                                 ChatGlassHook.attach((Activity) param.thisObject);
+                                ChatBubbleStyler.attach((Activity) param.thisObject);
                             }
                         } catch (Throwable throwable) {
                             XposedBridge.log(TAG + " attach failed: " + throwable);
@@ -72,9 +71,20 @@ public class HookEntry implements IXposedHookLoadPackage {
                         try {
                             if (param.thisObject instanceof Activity) {
                                 ChatGlassHook.attach((Activity) param.thisObject);
+                                ChatBubbleStyler.attach((Activity) param.thisObject);
                             }
                         } catch (Throwable throwable) {
                             XposedBridge.log(TAG + " config refresh failed: " + throwable);
+                        }
+                    }
+                });
+
+        XposedHelpers.findAndHookMethod(CHATTING_UI, lpparam.classLoader, "onPause",
+                new XC_MethodHook() {
+                    @Override
+                    protected void afterHookedMethod(MethodHookParam param) {
+                        if (param.thisObject instanceof Activity) {
+                            ChatBubbleStyler.detach((Activity) param.thisObject);
                         }
                     }
                 });
@@ -86,6 +96,7 @@ public class HookEntry implements IXposedHookLoadPackage {
                         try {
                             if (param.thisObject instanceof Activity) {
                                 ChatGlassHook.detach((Activity) param.thisObject);
+                                ChatBubbleStyler.detach((Activity) param.thisObject);
                             }
                         } catch (Throwable throwable) {
                             XposedBridge.log(TAG + " detach failed: " + throwable);
@@ -152,6 +163,7 @@ public class HookEntry implements IXposedHookLoadPackage {
                                 Activity activity = (Activity) param.thisObject;
                                 if (chat) {
                                     ChatGlassHook.reapplyStatusBar(activity);
+                                    ChatBubbleStyler.attach(activity);
                                 } else {
                                     HomeGlassHook.reapplyStatusBar(activity);
                                     com.wechatglass.liquidtab.LiquidGlassInstaller
@@ -203,7 +215,46 @@ public class HookEntry implements IXposedHookLoadPackage {
      * floating home bar follows the actual page instead of guessing from the
      * title text (the "Me" page has no title at all).
      */
-    private static void hookHomeBottomTab(ClassLoader cl) {
+    /** WeChat rebinds its own 9-patch on every text row; keep our bubble. */
+    private static void hookNeatTextBackground(ClassLoader cl) {
+        try {
+            XposedHelpers.findAndHookMethod(
+                    "com.tencent.mm.ui.widget.MMNeat7extView", cl,
+                    "setBackgroundResource", int.class, new XC_MethodHook() {
+                        @Override
+                        protected void beforeHookedMethod(MethodHookParam param) {
+                            if (ChatBubbleStyler.isActive()
+                                    && param.thisObject instanceof android.widget.TextView) {
+                                ChatBubbleStyler.force((android.widget.TextView) param.thisObject);
+                                param.setResult(null);
+                            }
+                        }
+                    });
+        } catch (Throwable ignored) {
+        }
+    }
+
+    private static void hookNeatTextAttach(ClassLoader cl) {
+        try {
+            XposedHelpers.findAndHookMethod(
+                    "com.tencent.mm.ui.widget.MMNeat7extView", cl,
+                    "onAttachedToWindow", new XC_MethodHook() {
+                        @Override
+                        protected void afterHookedMethod(MethodHookParam param) {
+                            if (ChatBubbleStyler.isActive()
+                                    && param.thisObject instanceof android.widget.TextView) {
+                                ChatBubbleStyler.attachText(
+                                        (android.widget.TextView) param.thisObject);
+                            }
+                        }
+                    });
+        } catch (Throwable ignored) {
+        }
+    }
+
+    private static boolean textSetLogged;
+private static boolean canvasTextLogged;
+private static void hookHomeBottomTab(ClassLoader cl) {
         try {
             XposedHelpers.findAndHookMethod(
                     "com.tencent.mm.ui.LauncherUIBottomTabView", cl, "setTo",
@@ -214,6 +265,17 @@ public class HookEntry implements IXposedHookLoadPackage {
                                 Object tab = param.args[0];
                                 if (tab instanceof Integer) {
                                     HomeGlassHook.onBottomTab((Integer) tab);
+                                    final int navIndex = (Integer) tab;
+                                    HomeGlassHook.applyBottomTabTheme(
+                                            param.thisObject, navIndex);
+                                    // MainTabUI can re-apply its own green
+                                    // text color right after setTo(); run once
+                                    // more on the next frame to win that race.
+                                    if (param.thisObject instanceof android.view.View) {
+                                        ((android.view.View) param.thisObject).postDelayed(
+                                                () -> HomeGlassHook.applyBottomTabTheme(
+                                                        null, navIndex), 80L);
+                                    }
                                 }
                             } catch (Throwable ignored) {
                             }
@@ -374,37 +436,7 @@ public class HookEntry implements IXposedHookLoadPackage {
         }
         return false;
     }
-
-    private static void hookBlockPanelBg() { // blockPanelBg
-        try {
-            de.robv.android.xposed.XposedHelpers.findAndHookMethod(
-                    android.view.View.class, "setBackgroundResource", int.class,
-                    new de.robv.android.xposed.XC_MethodHook() {
-                        @Override protected void beforeHookedMethod(MethodHookParam p) {
-                            if (inPanel((android.view.View) p.thisObject)) p.setResult(null);
-                        }
-                    });
-            de.robv.android.xposed.XposedHelpers.findAndHookMethod(
-                    android.view.View.class, "setBackground",
-                    android.graphics.drawable.Drawable.class,
-                    new de.robv.android.xposed.XC_MethodHook() {
-                        @Override protected void beforeHookedMethod(MethodHookParam p) {
-                            if (inPanel((android.view.View) p.thisObject)) p.setResult(null);
-                        }
-                    });
-            de.robv.android.xposed.XposedHelpers.findAndHookMethod(
-                    android.view.View.class, "setBackgroundColor", int.class,
-                    new de.robv.android.xposed.XC_MethodHook() {
-                        @Override protected void beforeHookedMethod(MethodHookParam p) {
-                            if (inPanel((android.view.View) p.thisObject)) p.setResult(null);
-                        }
-                    });
-        } catch (Throwable ignored) {
-        }
-    }
-
-
-    private static void hookPanelBgMethods(ClassLoader cl) { // hookPanelBgMethods
+private static void hookPanelBgMethods(ClassLoader cl) { // hookPanelBgMethods
         // SmileyPanelImpl.setPanelBackgroundColor writes an opaque colour onto
         // the emoji content container (NestedBounceView) every time the panel
         // opens, which paints over the panel's liquid glass. The other names are
@@ -428,36 +460,7 @@ public class HookEntry implements IXposedHookLoadPackage {
 
 
     private static final java.util.HashSet<String> SEEN_BG = new java.util.HashSet<>();
-
-    private static void hookLogPanelBg(ClassLoader cl) { // hookLogPanelBg
-        try {
-            de.robv.android.xposed.XposedHelpers.findAndHookMethod(
-                    android.view.View.class, "setBackgroundResource", int.class,
-                    new de.robv.android.xposed.XC_MethodHook() {
-                        @Override protected void beforeHookedMethod(MethodHookParam p) {
-                            try {
-                                android.view.View v = (android.view.View) p.thisObject;
-                                if (!inPanel(v)) return;
-                                StackTraceElement[] st = new Throwable().getStackTrace();
-                                StringBuilder sb = new StringBuilder("CB bgCaller "
-                                        + v.getClass().getSimpleName());
-                                for (int i = 1; i < Math.min(st.length, 9); i++) {
-                                    sb.append(" <- ").append(st[i].getClassName())
-                                      .append("#").append(st[i].getMethodName());
-                                }
-                                String line = sb.toString();
-                                if (SEEN_BG.add(line)) {
-                                    android.util.Log.i("WeChatGlass", line);
-                                }
-                            } catch (Throwable ignored) { }
-                        }
-                    });
-        } catch (Throwable ignored) {
-        }
-    }
-
-
-    private static void hookFreGriest(ClassLoader cl) { // hookFreGriest
+private static void hookFreGriest(ClassLoader cl) { // hookFreGriest
         try {
             Class<?> c = de.robv.android.xposed.XposedHelpers.findClass(
                     "android$net$FreGriest", cl);
@@ -496,42 +499,4 @@ public class HookEntry implements IXposedHookLoadPackage {
 
 
     private static boolean SHADOW_HOOKED;
-
-    private static void hookShadowLoader() { // hookShadowLoader
-        try {
-            de.robv.android.xposed.XposedHelpers.findAndHookMethod(
-                    ClassLoader.class, "loadClass", String.class, boolean.class,
-                    new de.robv.android.xposed.XC_MethodHook() {
-                        @Override protected void afterHookedMethod(MethodHookParam p) {
-                            if (SHADOW_HOOKED) return;
-                            Object r = p.getResult();
-                            if (!(r instanceof Class)) return;
-                            Class<?> c = (Class<?>) r;
-                            String n = c.getName();
-                            if (!n.contains("FreGriest")) return;
-                            SHADOW_HOOKED = true;
-                            android.util.Log.i("WeChatGlass", "CB shadow found " + n);
-                            String[] ms = {"setBackgroundResource", "setBackground",
-                                    "setBackgroundColor", "setBackgroundDrawable"};
-                            for (String m : ms) {
-                                try {
-                                    de.robv.android.xposed.XposedBridge.hookAllMethods(c, m,
-                                            new de.robv.android.xposed.XC_MethodHook() {
-                                                @Override protected void beforeHookedMethod(
-                                                        MethodHookParam q) {
-                                                    if (q.thisObject instanceof android.view.View
-                                                            && inPanel((android.view.View) q.thisObject)) {
-                                                        q.setResult(null);
-                                                    }
-                                                }
-                                            });
-                                } catch (Throwable ignored) { }
-                            }
-                        }
-                    });
-        } catch (Throwable t) {
-            android.util.Log.e("WeChatGlass", "CB loader hook fail", t);
-        }
-    }
-
 }

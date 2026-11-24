@@ -35,12 +35,54 @@ final class ConversationIndex {
     private static final List<Entry> GROUPS = new ArrayList<>();
     private static final List<Entry> SYSTEM = new ArrayList<>();
     private static volatile boolean loaded;
+    private static volatile int version;
+    /** Conversation storage handle, cached so refresh() re-queries without re-resolving. */
+    private static Object conversationDb;
 
     private ConversationIndex() {
     }
 
     static boolean loaded() {
         return loaded;
+    }
+
+    static int version() {
+        return version;
+    }
+
+    /**
+     * Re-reads the conversation table and updates unread/read, preview, time and
+     * pinned state of the in-memory rows in place, then bumps {@link #version} so
+     * the list re-renders. Much cheaper than {@link #load}: it touches only
+     * {@code rconversation}, never the full contact table.
+     */
+    static synchronized void refresh() {
+        if (!loaded || conversationDb == null) {
+            return;
+        }
+        try {
+            Map<String, Entry> conversations = queryConversations(conversationDb);
+            applyConversations(FRIENDS, conversations);
+            applyConversations(GROUPS, conversations);
+            applyConversations(SYSTEM, conversations);
+            version++;
+        } catch (Throwable throwable) {
+            android.util.Log.e("WeChatGlass", "HL refresh failed", throwable);
+        }
+    }
+
+    /** Copies the live conversation state onto each existing row. */
+    private static void applyConversations(List<Entry> list, Map<String, Entry> conversations) {
+        for (Entry e : list) {
+            Entry conv = conversations.get(e.username);
+            if (conv != null) {
+                e.hasConversation = true;
+                e.unread = conv.unread;
+                e.preview = conv.preview;
+                e.time = conv.time;
+                e.pinned = conv.pinned;
+            }
+        }
     }
 
     static synchronized void load(ClassLoader cl) {
@@ -58,7 +100,7 @@ final class ConversationIndex {
                     .callMethod(container, "s");
             Object contactDb = de.robv.android.xposed.XposedHelpers
                     .getObjectField(contactStorage, "d");
-            Object conversationDb = de.robv.android.xposed.XposedHelpers
+            conversationDb = de.robv.android.xposed.XposedHelpers
                     .getObjectField(conversationStorage, "d");
 
             Map<String, Entry> conversations = queryConversations(conversationDb);
@@ -133,6 +175,7 @@ final class ConversationIndex {
                 e.pinned = conv.pinned;
                 SYSTEM.add(e);
             }
+            version++;
             loaded = true;
             android.util.Log.i("WeChatGlass", "HL index friends=" + FRIENDS.size()
                     + " (with conv=" + countWithConversation(FRIENDS) + ")"
