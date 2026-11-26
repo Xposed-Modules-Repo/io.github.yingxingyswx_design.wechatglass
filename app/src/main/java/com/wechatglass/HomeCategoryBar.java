@@ -27,6 +27,7 @@ import com.wechatglass.liquid.Spring;
 final class HomeCategoryBar extends FrameLayout {
 
     static final int HEIGHT_DP = 40;
+    private static final float INSET_DP = 4f;
     /** WeChat green, the same accent the bottom tab bar uses. */
     private static final int WECHAT_GREEN = 0xFF07C160;
     private static final long PRESS_DELAY_MS = 360L;
@@ -94,8 +95,10 @@ final class HomeCategoryBar extends FrameLayout {
         row = new LinearLayout(context);
         row.setOrientation(LinearLayout.HORIZONTAL);
         row.setGravity(Gravity.CENTER_VERTICAL);
-        int pad = Ui.dp(context, 6f);
-        row.setPadding(pad, Ui.dp(context, 3f), pad, Ui.dp(context, 3f));
+        // One inset on all four sides, so the selection pill sits concentric
+        // inside the outer pill (inner radius = outer radius - inset).
+        int pad = Ui.dp(context, INSET_DP);
+        row.setPadding(pad, pad, pad, pad);
         for (int i = 0; i < 3; i++) {
             final int index = i;
             TextView tab = new TextView(context);
@@ -140,6 +143,15 @@ final class HomeCategoryBar extends FrameLayout {
         }
         night = isNight;
         applyStyle();
+    }
+
+    @Override
+    protected void onSizeChanged(int w, int h, int oldw, int oldh) {
+        super.onSizeChanged(w, h, oldw, oldh);
+        // Keep the outer shape a true pill at whatever height the bar gets.
+        if (getBackground() instanceof GradientDrawable) {
+            ((GradientDrawable) getBackground()).setCornerRadius(h / 2f);
+        }
     }
 
     @Override
@@ -237,6 +249,9 @@ final class HomeCategoryBar extends FrameLayout {
             return;
         }
         indicator.layout(left, top, left + width, top + height);
+        if (indicator.getBackground() instanceof GradientDrawable) {
+            ((GradientDrawable) indicator.getBackground()).setCornerRadius(height / 2f);
+        }
         indicator.invalidate();
         setScaleX(scaleXSpring.value());
         setScaleY(scaleYSpring.value());
