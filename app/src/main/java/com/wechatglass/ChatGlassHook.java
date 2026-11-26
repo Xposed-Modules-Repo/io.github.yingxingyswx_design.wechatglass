@@ -2194,28 +2194,22 @@ final class ChatGlassHook {
         scrim.setBackground(new android.graphics.drawable.GradientDrawable(
                 android.graphics.drawable.GradientDrawable.Orientation.TOP_BOTTOM,
                 night
-                        ? new int[]{0xFF000000, 0xD9000000, 0x00000000}
-                        : new int[]{0xFFFFFFFF, 0xD9FFFFFF, 0x00FFFFFF}));
+                        ? new int[]{0xFF000000, 0xF2000000, 0x00000000}
+                        : new int[]{0xFFFFFFFF, 0xF2FFFFFF, 0x00FFFFFF}));
         int status = Ui.statusBarHeight(decor);
+        // Covers only the status bar (plus a short fade), drawn as the top
+        // child of the window: inside the ActionBar it sat under rows that
+        // draw outside their bounds (unclipped media, animated stickers), so
+        // messages still showed through behind the clock.
         FrameLayout.LayoutParams lp = new FrameLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT,
-                status * 2 + Ui.dp(activity, 8f), Gravity.TOP);
-        // Draw inside the floating top bar, shifted up to cover the status bar,
-        // so it stays above chat content and below the chips.
-        lp.topMargin = -status;
-        ViewGroup parent = null;
-        if (actionBar instanceof ViewGroup) {
-            parent = (ViewGroup) actionBar;
-            parent.setClipChildren(false);
-            if (parent.getParent() instanceof ViewGroup) {
-                ((ViewGroup) parent.getParent()).setClipChildren(false);
-            }
-        }
-        if (parent != null) {
-            parent.addView(scrim, 0, lp);
-        } else if (contentFrame != null) {
-            contentFrame.addView(scrim, lp);
-        } else if (decor instanceof ViewGroup) {
+                status + Ui.dp(activity, 6f), Gravity.TOP);
+        // WeChat's SwipeBackLayout is raised in Z, which draws the whole chat
+        // above any later sibling; lift the scrim above it (no outline, so no
+        // shadow is cast).
+        scrim.setOutlineProvider(null);
+        scrim.setTranslationZ(Ui.dp(activity, 64f));
+        if (decor instanceof ViewGroup) {
             ((ViewGroup) decor).addView(scrim, lp);
         } else {
             return;
