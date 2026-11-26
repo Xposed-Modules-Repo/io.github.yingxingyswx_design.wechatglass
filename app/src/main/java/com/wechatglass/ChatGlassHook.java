@@ -784,13 +784,14 @@ final class ChatGlassHook {
 
     private String readConfig(String key) {
         try {
-            Class<?> c = Class.forName("de.robv.android.xposed.XSharedPreferences");
-            Object sp = c.getConstructor(String.class, String.class)
-                    .newInstance("com.wechatglass", "settings");
-            c.getMethod("reload").invoke(sp);
-            Object v = c.getMethod("getString", String.class, String.class)
-                    .invoke(sp, key, null);
-            return (String) v;
+            // Direct reference: Vector renames the Xposed API classes, so a
+            // Class.forName("de.robv...") string always fails there. The
+            // package is the current module id (com.wechatglass was retired).
+            de.robv.android.xposed.XSharedPreferences sp =
+                    new de.robv.android.xposed.XSharedPreferences(
+                            "io.github.yingxingyswx_design.wechatglass", "settings");
+            sp.reload();
+            return sp.getString(key, null);
         } catch (Throwable t) {
             android.util.Log.e("WeChatGlass", "CB xsp read fail " + key, t);
         }

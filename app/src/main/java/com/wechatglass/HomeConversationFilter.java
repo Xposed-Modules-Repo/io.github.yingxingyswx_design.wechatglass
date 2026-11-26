@@ -166,6 +166,17 @@ final class HomeConversationFilter {
         if (conversation == null) {
             return null;
         }
+        // field_username is WeChat's unobfuscated storage column; f1() was the
+        // 8.0.79 getter and no longer exists on 8.0.80, which left the native
+        // list unfiltered in every category.
+        try {
+            Object username = de.robv.android.xposed.XposedHelpers
+                    .getObjectField(conversation, "field_username");
+            if (username instanceof String) {
+                return (String) username;
+            }
+        } catch (Throwable ignored) {
+        }
         try {
             Object username = de.robv.android.xposed.XposedHelpers
                     .callMethod(conversation, "f1");

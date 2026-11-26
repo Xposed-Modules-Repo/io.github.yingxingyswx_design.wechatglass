@@ -580,6 +580,12 @@ final class HomeGlassHook {
         FrameLayout.LayoutParams overlayParams = new FrameLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, actionBarHeight);
         overlayParams.gravity = Gravity.TOP;
+        // The list scrolls under the floating bar. Without a scrim the rows ran
+        // straight through the switcher, the chips and the status bar.
+        int surface = com.wechatglass.m3.M3Theme.colors(activity).surface & 0x00FFFFFF;
+        overlay.setBackground(new android.graphics.drawable.GradientDrawable(
+                android.graphics.drawable.GradientDrawable.Orientation.TOP_BOTTOM,
+                new int[]{0xFF000000 | surface, 0xEB000000 | surface, surface}));
         ((ViewGroup) decor).addView(overlay, overlayParams);
 
         leftChip = new GlassChipView(activity, renderer, chipHeight / 2f, tint, border);
