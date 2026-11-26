@@ -191,7 +191,13 @@ public class HookEntry implements IXposedHookLoadPackage {
      */
     private static void hookHomeAdapterSetter(ClassLoader cl) {
         try {
-            XposedHelpers.findAndHookMethod("iq5.a1", cl, "Z",
+            String[] adapter = WxNames.homeAdapter(cl);
+            if (adapter == null) {
+                XposedBridge.log(TAG + " home filter skipped: no known home adapter"
+                        + " for this WeChat build");
+                return;
+            }
+            XposedHelpers.findAndHookMethod(adapter[0], cl, adapter[1],
                     android.widget.ListView.class, new XC_MethodHook() {
                         @Override
                         protected void afterHookedMethod(MethodHookParam param) {
@@ -205,7 +211,7 @@ public class HookEntry implements IXposedHookLoadPackage {
                             }
                         }
                     });
-            XposedBridge.log(TAG + " home filter hooked: iq5.a1.Z");
+            XposedBridge.log(TAG + " home filter hooked: " + adapter[0] + "." + adapter[1]);
         } catch (Throwable throwable) {
             XposedBridge.log(TAG + " home filter Z skipped: " + throwable);
         }

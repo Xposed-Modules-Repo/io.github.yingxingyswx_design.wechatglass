@@ -308,6 +308,10 @@ class M3ContactsPage extends M3PageBase {
         if (entry.icon != null) {
             ImageView icon = new ImageView(context);
             icon.setImageDrawable(entry.icon);
+            // Same mask as the contact avatars below, so the entry icons and
+            // the avatars share one shape (circle or rounded square).
+            icon.setScaleType(ImageView.ScaleType.CENTER_CROP);
+            applyAvatarShape(icon);
             LinearLayout.LayoutParams iconLp = new LinearLayout.LayoutParams(
                     M3Theme.dp(context, 40f), M3Theme.dp(context, 40f));
             iconLp.rightMargin = M3Theme.dp(context, 16f);

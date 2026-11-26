@@ -182,6 +182,7 @@ final class HomeGlassHook {
     private boolean installed;
     private int attempts;
     private boolean overlaySet;
+    private boolean indexFallbackApplied;
     private long lastGeometrySignature = Long.MIN_VALUE;
 
     private final Runnable tick = new Runnable() {
@@ -202,6 +203,11 @@ final class HomeGlassHook {
                 // WeChat can replace the adapter again on resume; this is a
                 // cheap identity check, not a re-wrap.
                 HomeConversationFilter.attach(homeListView);
+            }
+            if (ConversationIndex.failed() && !indexFallbackApplied) {
+                indexFallbackApplied = true;
+                android.util.Log.w("WeChatGlass", "HL index unavailable; showing WeChat's own list");
+                updateTabState();
             }
             if (categoryPage != null && ConversationIndex.loaded()) {
                 // The index loads on a background thread; the first show() can
@@ -521,7 +527,12 @@ final class HomeGlassHook {
         rightView = findRightView();
         Ui.transparent(leftView);
 
+        // 0x7f0a183e is the 8.0.79 id; resource ids move between WeChat builds
+        // (8.0.80 uses 0x7f0a182a), so fall back to the group's shape.
         View rightGroup = toolbar.findViewById(0x7f0a183e);
+        if (!isActionButtonGroup(rightGroup)) {
+            rightGroup = findActionButtonGroup(toolbar);
+        }
         if (rightGroup instanceof ViewGroup) {
             ViewGroup rg = (ViewGroup) rightGroup;
             if (rg.getChildCount() > 0) {
@@ -569,6 +580,12 @@ final class HomeGlassHook {
         FrameLayout.LayoutParams overlayParams = new FrameLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, actionBarHeight);
         overlayParams.gravity = Gravity.TOP;
+        // The list scrolls under the floating bar. Without a scrim the rows ran
+        // straight through the switcher, the chips and the status bar.
+        int surface = com.wechatglass.m3.M3Theme.colors(activity).surface & 0x00FFFFFF;
+        overlay.setBackground(new android.graphics.drawable.GradientDrawable(
+                android.graphics.drawable.GradientDrawable.Orientation.TOP_BOTTOM,
+                new int[]{0xFF000000 | surface, 0xEB000000 | surface, surface}));
         ((ViewGroup) decor).addView(overlay, overlayParams);
 
         leftChip = new GlassChipView(activity, renderer, chipHeight / 2f, tint, border);
@@ -998,6 +1015,42 @@ final class HomeGlassHook {
         return best;
     }
 
+    /** The toolbar group that holds the search and "+" buttons, found by shape. */
+    private View findActionButtonGroup(View root) {
+        if (isActionButtonGroup(root)) {
+            return root;
+        }
+        if (root instanceof ViewGroup) {
+            ViewGroup group = (ViewGroup) root;
+            for (int i = 0; i < group.getChildCount(); i++) {
+                View found = findActionButtonGroup(group.getChildAt(i));
+                if (found != null) {
+                    return found;
+                }
+            }
+        }
+        return null;
+    }
+
+    /** At least two direct children, the first two clickable and holding an image. */
+    private boolean isActionButtonGroup(View view) {
+        if (!(view instanceof ViewGroup)) {
+            return false;
+        }
+        ViewGroup group = (ViewGroup) view;
+        if (group.getChildCount() < 2) {
+            return false;
+        }
+        for (int i = 0; i < 2; i++) {
+            View child = group.getChildAt(i);
+            if (!child.isClickable() || child instanceof ImageView
+                    || !(findImage(child) instanceof ImageView)) {
+                return false;
+            }
+        }
+        return true;
+    }
+
     private View findRightView() {
         View menu = Ui.findByClass(toolbar, "androidx.appcompat.widget.ActionMenuView");
         if (menu != null && menu.getWidth() > 0) {
@@ -1151,10 +1204,13 @@ final class HomeGlassHook {
         if (drawable == null) {
             return null;
         }
-        drawable = drawable.mutate();
-        if (Build.VERSION.SDK_INT >= 21) {
-            drawable.setTint(night ? Color.WHITE : 0xFF1A1A1A);
-        }
+        // Copy before recolouring: the drawable is shared with WeChat's own
+        // (hidden) button. A colour filter wins over WeChat's icon tinting,
+        // which kept the search / + icons black on the dark theme.
+        Drawable.ConstantState state = drawable.getConstantState();
+        drawable = state != null ? state.newDrawable().mutate() : drawable.mutate();
+        drawable.setColorFilter(new android.graphics.PorterDuffColorFilter(
+                night ? Color.WHITE : 0xFF1A1A1A, android.graphics.PorterDuff.Mode.SRC_IN));
         return drawable;
     }
 
@@ -1222,7 +1278,11 @@ final class HomeGlassHook {
         applyBottomTabTheme(null, Math.max(0, bottomTab));
     }
 
-    /** Status/navigation bars follow the same theme as the switcher pill. */
+    /**
+     * The home page is edge to edge: keep the system bars transparent so the
+     * floating top bar sits on the page itself. Filling them with the primary
+     * colour painted a solid green block above the bar on every cold start.
+     */
     private void applySystemBars() {
         if (activity == null) {
             return;
@@ -1230,7 +1290,7 @@ final class HomeGlassHook {
         try {
             com.wechatglass.m3.M3ColorScheme scheme =
                     com.wechatglass.m3.M3Theme.colors(activity);
-            int color = scheme.primary;
+            int color = Color.TRANSPARENT;
             android.view.Window window = activity.getWindow();
             window.addFlags(android.view.WindowManager.LayoutParams
                     .FLAG_DRAWS_SYSTEM_BAR_BACKGROUNDS);
@@ -1304,7 +1364,10 @@ final class HomeGlassHook {
             categoryBar.setVisibility(
                     full && HomeConversationFilter.active() ? View.VISIBLE : View.GONE);
         }
-        boolean nativeList = HookConfig.nativeList(activity);
+        // Fall back to WeChat's own list when the read-only index could not be
+        // built (unknown WeChat build): an empty custom page over an invisible
+        // native list leaves the chats tab blank.
+        boolean nativeList = HookConfig.nativeList(activity) || ConversationIndex.failed();
         if (categoryPage != null) {
             boolean showPage = full && !nativeList;
             categoryPage.setVisibility(showPage ? View.VISIBLE : View.GONE);

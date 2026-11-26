@@ -16,6 +16,7 @@ import android.view.ViewGroup;
 final class M3PageHost {
 
     private static final String TAG = "WeChatGlassPages";
+    private static final int TAG_PINNED = 0x7e0a0001;
 
     private final Activity activity;
     private final View pager;
@@ -113,10 +114,75 @@ final class M3PageHost {
         }
         page.setVisibility(View.VISIBLE);
         page.bringToFront();
+        pinToPageTop(page, root);
         if (nativeList == null) {
             return false;
         }
         return refresh(tab, root);
+    }
+
+    /**
+     * WeChat gives the 通讯录 / 发现 content a top margin the height of its
+     * ActionBar. That bar is hidden here and the M3 page draws its own large
+     * title, so the margin only left a band of the native page colour above
+     * the page (and pushed its title down). Clear the offset between the tab
+     * page and our page, now and whenever WeChat lays the page out again.
+     */
+    private void pinToPageTop(final View page, final View root) {
+        clearTopOffset(page, root);
+        if (Boolean.TRUE.equals(page.getTag(TAG_PINNED))) {
+            return;
+        }
+        page.setTag(TAG_PINNED, Boolean.TRUE);
+        page.addOnLayoutChangeListener(new View.OnLayoutChangeListener() {
+            @Override
+            public void onLayoutChange(View v, int l, int t, int r, int b,
+                                       int ol, int ot, int or, int ob) {
+                if (v.getVisibility() == View.VISIBLE && v.getParent() != null) {
+                    final View pageRoot = pageRootOf(v);
+                    if (pageRoot != null) {
+                        v.post(new Runnable() {
+                            @Override
+                            public void run() {
+                                clearTopOffset(page, pageRoot);
+                            }
+                        });
+                    }
+                }
+            }
+        });
+    }
+
+    /** The pager child that holds {@code view}. */
+    private View pageRootOf(View view) {
+        View cur = view;
+        while (cur != null && cur.getParent() instanceof View) {
+            if (cur.getParent() == pager) {
+                return cur;
+            }
+            cur = (View) cur.getParent();
+        }
+        return null;
+    }
+
+    private static void clearTopOffset(View page, View root) {
+        View cur = page.getParent() instanceof View ? (View) page.getParent() : null;
+        while (cur != null) {
+            ViewGroup.LayoutParams lp = cur.getLayoutParams();
+            if (lp instanceof ViewGroup.MarginLayoutParams
+                    && ((ViewGroup.MarginLayoutParams) lp).topMargin > 0) {
+                ((ViewGroup.MarginLayoutParams) lp).topMargin = 0;
+                cur.setLayoutParams(lp);
+            }
+            if (cur.getPaddingTop() > 0) {
+                cur.setPadding(cur.getPaddingLeft(), 0,
+                        cur.getPaddingRight(), cur.getPaddingBottom());
+            }
+            if (cur == root) {
+                break;
+            }
+            cur = cur.getParent() instanceof View ? (View) cur.getParent() : null;
+        }
     }
 
     private boolean refresh(int tab, View root) {

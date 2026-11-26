@@ -27,6 +27,7 @@ import com.wechatglass.liquid.Spring;
 final class HomeCategoryBar extends FrameLayout {
 
     static final int HEIGHT_DP = 40;
+    private static final float INSET_DP = 4f;
     /** WeChat green, the same accent the bottom tab bar uses. */
     private static final int WECHAT_GREEN = 0xFF07C160;
     private static final long PRESS_DELAY_MS = 360L;
@@ -84,7 +85,9 @@ final class HomeCategoryBar extends FrameLayout {
 
         indicator = new View(context);
         GradientDrawable pill = new GradientDrawable();
-        pill.setColor(scheme.primary);
+        // M3 segmented/selection indicator: secondary container, the same tone
+        // as the bottom navigation's active pill, instead of a saturated primary.
+        pill.setColor(scheme.secondaryContainer);
         pill.setCornerRadius(Ui.dp(context, (HEIGHT_DP - 6) / 2f));
         indicator.setBackground(pill);
         addView(indicator, new LayoutParams(0, 0));
@@ -92,8 +95,10 @@ final class HomeCategoryBar extends FrameLayout {
         row = new LinearLayout(context);
         row.setOrientation(LinearLayout.HORIZONTAL);
         row.setGravity(Gravity.CENTER_VERTICAL);
-        int pad = Ui.dp(context, 6f);
-        row.setPadding(pad, Ui.dp(context, 3f), pad, Ui.dp(context, 3f));
+        // One inset on all four sides, so the selection pill sits concentric
+        // inside the outer pill (inner radius = outer radius - inset).
+        int pad = Ui.dp(context, INSET_DP);
+        row.setPadding(pad, pad, pad, pad);
         for (int i = 0; i < 3; i++) {
             final int index = i;
             TextView tab = new TextView(context);
@@ -141,6 +146,15 @@ final class HomeCategoryBar extends FrameLayout {
     }
 
     @Override
+    protected void onSizeChanged(int w, int h, int oldw, int oldh) {
+        super.onSizeChanged(w, h, oldw, oldh);
+        // Keep the outer shape a true pill at whatever height the bar gets.
+        if (getBackground() instanceof GradientDrawable) {
+            ((GradientDrawable) getBackground()).setCornerRadius(h / 2f);
+        }
+    }
+
+    @Override
     protected void onLayout(boolean changed, int left, int top, int right, int bottom) {
         super.onLayout(changed, left, top, right, bottom);
         if (!frameScheduled) {
@@ -171,7 +185,7 @@ final class HomeCategoryBar extends FrameLayout {
             TextView tab = tabs[i];
             boolean selected = i == mode;
             tab.setTextColor(selected
-                    ? scheme.onPrimary
+                    ? scheme.onSecondaryContainer
                     : (night ? 0xFFE8E8E8 : 0xFF333333));
             tab.setTypeface(null, selected
                     ? android.graphics.Typeface.BOLD : android.graphics.Typeface.NORMAL);
@@ -235,6 +249,9 @@ final class HomeCategoryBar extends FrameLayout {
             return;
         }
         indicator.layout(left, top, left + width, top + height);
+        if (indicator.getBackground() instanceof GradientDrawable) {
+            ((GradientDrawable) indicator.getBackground()).setCornerRadius(height / 2f);
+        }
         indicator.invalidate();
         setScaleX(scaleXSpring.value());
         setScaleY(scaleYSpring.value());

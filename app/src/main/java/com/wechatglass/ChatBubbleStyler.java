@@ -531,9 +531,8 @@ final class ChatBubbleStyler {
             int rightMargin = screen - (bl[0] + bubble.getWidth());
             outgoing = bl[0] > rightMargin;
         }
-        M3ColorScheme scheme = M3ColorScheme.forContext(context, true);
-        int color = scheme.primary;
-        int textColor = scheme.onPrimary;
+        int color = bubbleColor(context, outgoing);
+        int textColor = bubbleTextColor(context, outgoing);
 
         View cur = target;
         while (cur != null && cur != bubble) {
@@ -1694,6 +1693,22 @@ final class ChatBubbleStyler {
         return best;
     }
 
+    /**
+     * Bubble fill per docs/GoogleChat-UI-Spec.md: sent messages use the primary
+     * container, received ones the highest surface container, both from the
+     * palette of the current day/night mode. Painting every bubble with the
+     * dark palette's primary made sent and received messages look the same.
+     */
+    private static int bubbleColor(Context context, boolean outgoing) {
+        M3ColorScheme scheme = M3ColorScheme.forContext(context);
+        return outgoing ? scheme.primaryContainer : scheme.surfaceContainerHighest;
+    }
+
+    private static int bubbleTextColor(Context context, boolean outgoing) {
+        M3ColorScheme scheme = M3ColorScheme.forContext(context);
+        return outgoing ? scheme.onPrimaryContainer : scheme.onSurface;
+    }
+
     private static boolean isOutgoingByAvatar(View avatar, int screen) {
         if (avatar == null) {
             return false;
@@ -2007,11 +2022,10 @@ final class ChatBubbleStyler {
             outgoing = loc[0] > screen - (loc[0] + card.getWidth());
         }
 
-        // Transaction/red-packet cards always use the selected dark-palette
-        // primary role, regardless of the current page brightness.
-        M3ColorScheme cardScheme = M3ColorScheme.forContext(context, true);
-        int color = cardScheme.primary;
-        int textColor = cardScheme.onPrimary;
+        // Cards (files, links, transfers) share the text bubbles' colours so a
+        // sent card and a sent message read as the same side of the chat.
+        int color = bubbleColor(context, outgoing);
+        int textColor = bubbleTextColor(context, outgoing);
         float radius = M3Theme.dpF(context, M3Shape.LARGE_INCREASED);
         float tail = M3Theme.dpF(context, 7f);
         BubbleDrawable shape = new BubbleDrawable(color, radius, tail, outgoing);
@@ -2051,59 +2065,50 @@ final class ChatBubbleStyler {
         APPLIED.remove(media);
     }
 
+    private static final WeakHashMap<View, android.view.ViewOutlineProvider> MEDIA_OUTLINES =
+            new WeakHashMap<>();
+
+    /**
+     * Images and stickers are shown as rounded cards, without a coloured
+     * bubble around them (Google Chat / Material 3 style). The earlier grown
+     * bubble painted a thick primary-colour frame and a tail around every
+     * picture, which looked heavy, most of all in dark mode.
+     */
     private static void styleMediaBubble(View media, View item, View avatar,
                                          Context context) {
-        int screen = context.getResources().getDisplayMetrics().widthPixels;
-        boolean outgoing;
-        if (avatar != null) {
-            outgoing = isOutgoingByAvatar(avatar, screen);
-        } else {
-            int[] loc = new int[2];
-            media.getLocationOnScreen(loc);
-            outgoing = loc[0] > screen - (loc[0] + media.getWidth());
-        }
-        M3ColorScheme scheme = M3ColorScheme.forContext(context, true);
-        int color = scheme.primary;
-        float radius = M3Theme.dpF(context, M3Shape.LARGE_INCREASED);
-        float tail = M3Theme.dpF(context, 7f);
-        // The bubble is the media's own background, grown past the media's bounds
-        // by ~5.9% on each side (≈ +25% area). No view is added to the row, so
-        // WeChat's layout is untouched and the media stays exactly where it is —
-        // this is what keeps it centred and stops the "shifted up" regression the
-        // sibling-view approach introduced.
-        float outsetX = media.getWidth() * 0.059f;
-        float outsetY = media.getHeight() * 0.059f;
-        BubbleDrawable shape = new BubbleDrawable(color, radius, tail, outgoing,
-                outsetX, outsetY);
         clearMediaVisualBackgrounds(media, media, avatar, context, 0);
-        // roundStickers re-enables clipToOutline every pass; it clips the grown
-        // bubble (and the tail above the media) back to the media's bounds, so it
-        // must be cleared here every pass, before the early-return below.
-        if (media.getClipToOutline()) {
+        if (media.getBackground() instanceof BubbleDrawable) {
             remember(media);
-            media.setClipToOutline(false);
+            media.setBackground(null);
+            APPLIED.remove(media);
         }
-        View wrap = media.getParent() instanceof View ? (View) media.getParent() : null;
-        if (wrap != null && wrap.getClipToOutline()) {
-            remember(wrap);
-            wrap.setClipToOutline(false);
+        final float radius = M3Theme.dpF(context, M3Shape.LARGE_INCREASED);
+        android.view.ViewOutlineProvider outline = MEDIA_OUTLINES.get(media);
+        if (outline == null) {
+            outline = new android.view.ViewOutlineProvider() {
+                @Override
+                public void getOutline(View view, android.graphics.Outline o) {
+                    o.setRoundRect(0, 0, view.getWidth(), view.getHeight(), radius);
+                }
+            };
+            MEDIA_OUTLINES.put(media, outline);
         }
-        BubbleDrawable previous = APPLIED.get(media);
-        if (previous != null && media.getBackground() == previous
-                && previous.matches(color, radius, tail, outgoing, outsetX, outsetY)) {
-            return;
+        boolean changed = false;
+        if (media.getOutlineProvider() != outline) {
+            remember(media);
+            media.setOutlineProvider(outline);
+            changed = true;
         }
-        remember(media);
-        media.setBackground(shape);
-        if (android.os.Build.VERSION.SDK_INT >= 21) {
-            media.setBackgroundTintList(null);
+        if (!media.getClipToOutline()) {
+            remember(media);
+            media.setClipToOutline(true);
+            changed = true;
         }
-        shape.setBounds(0, 0, media.getWidth(), media.getHeight());
-        media.invalidate();
-        APPLIED.put(media, shape);
-        unclipMediaAncestors(media, item);
-        watchMedia(media, item, avatar, context);
-        logAppliedSurface("media", media);
+        if (changed) {
+            media.invalidateOutline();
+            media.invalidate();
+            logAppliedSurface("media", media);
+        }
     }
 
     /** Lets the grown media bubble draw past its own bounds up to the row. */

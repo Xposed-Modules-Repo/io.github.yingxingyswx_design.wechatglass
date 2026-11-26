@@ -209,6 +209,8 @@ public final class M3ColorScheme {
         int n1_0 = sys(c, android.R.color.system_neutral1_0);
         int n1_100 = sys(c, android.R.color.system_neutral1_100);
         int n1_200 = sys(c, android.R.color.system_neutral1_200);
+        int n1_700 = sys(c, android.R.color.system_neutral1_700);
+        int n1_800 = sys(c, android.R.color.system_neutral1_800);
         int n1_900 = sys(c, android.R.color.system_neutral1_900);
         int n1_1000 = sys(c, android.R.color.system_neutral1_1000);
 
@@ -236,22 +238,23 @@ public final class M3ColorScheme {
             v[9] = a3_0;
             v[10] = a3_100;
             v[11] = a3_900;
-            v[16] = n1_0;
-            v[17] = n1_1000;
-            v[18] = n2_100;
-            v[19] = n2_800;
-            v[20] = n1_0;
-            v[21] = mix(n1_0, n1_100, 0.08f);
-            v[22] = mix(n1_0, n1_100, 0.12f);
-            v[23] = mix(n1_0, n1_100, 0.16f);
-            v[24] = mix(n1_0, n1_100, 0.20f);
-            v[25] = n2_500;
-            v[26] = n2_200;
+            // Same neutral calming as the dark scheme (see below).
+            v[16] = calm(n1_0);
+            v[17] = calm(n1_1000);
+            v[18] = calm(n2_100);
+            v[19] = calm(n2_800);
+            v[20] = calm(n1_0);
+            v[21] = calm(mix(n1_0, n1_100, 0.08f));
+            v[22] = calm(mix(n1_0, n1_100, 0.12f));
+            v[23] = calm(mix(n1_0, n1_100, 0.16f));
+            v[24] = calm(mix(n1_0, n1_100, 0.20f));
+            v[25] = calm(n2_500);
+            v[26] = calm(n2_200);
             v[27] = n1_900;
-            v[28] = n1_100;
+            v[28] = calm(n1_100);
             v[29] = a1_200;
-            v[32] = mix(n1_0, n1_100, 0.32f);
-            v[33] = n1_0;
+            v[32] = calm(mix(n1_0, n1_100, 0.32f));
+            v[33] = calm(n1_0);
         } else {
             v[0] = a1_200;
             v[1] = a1_900;
@@ -265,22 +268,29 @@ public final class M3ColorScheme {
             v[9] = a3_900;
             v[10] = a3_700;
             v[11] = a3_100;
-            v[16] = n1_900;
-            v[17] = n1_0;
-            v[18] = n2_800;
-            v[19] = n2_300;
-            v[20] = n1_1000;
-            v[21] = mix(n1_900, n1_1000, 0.08f);
-            v[22] = mix(n1_900, n1_1000, 0.12f);
-            v[23] = mix(n1_900, n1_1000, 0.16f);
-            v[24] = mix(n1_900, n1_1000, 0.20f);
-            v[25] = n2_500;
-            v[26] = n2_800;
-            v[27] = n1_0;
-            v[28] = n1_900;
+            // M3 dark surface tones: surface 6, containers 4 / 10 / 12 / 17 / 22,
+            // dim 6, bright 24. Android names neutral tones (100 - tone) * 10,
+            // so n1_900 is tone 10 and n1_1000 is tone 0. The containers used
+            // to be mixed towards black, i.e. darker than the surface.
+            // Neutral colours are calmed: with a VIBRANT system palette (ColorOS
+            // default) the "neutral" palette is strongly tinted, which turned
+            // every dark page and bubble deep green.
+            v[16] = calm(mix(n1_1000, n1_900, 0.6f));
+            v[17] = calm(n1_100);
+            v[18] = calm(n2_800);
+            v[19] = calm(n2_300);
+            v[20] = calm(mix(n1_1000, n1_900, 0.4f));
+            v[21] = calm(n1_900);
+            v[22] = calm(mix(n1_900, n1_800, 0.2f));
+            v[23] = calm(mix(n1_900, n1_800, 0.7f));
+            v[24] = calm(mix(n1_800, n1_700, 0.2f));
+            v[25] = calm(n2_500);
+            v[26] = calm(n2_800);
+            v[27] = n1_100;
+            v[28] = calm(n1_800);
             v[29] = a1_600;
-            v[32] = n1_900;
-            v[33] = mix(n1_900, n1_0, 0.24f);
+            v[32] = calm(mix(n1_1000, n1_900, 0.6f));
+            v[33] = calm(mix(n1_800, n1_700, 0.4f));
         }
         error(v, dark);
         v[30] = 0xFF000000;
@@ -365,6 +375,15 @@ public final class M3ColorScheme {
 
     private static int sys(Context c, int id) {
         return c.getColor(id);
+    }
+
+    /** Pulls a neutral role most of the way to grey, keeping its lightness. */
+    private static int calm(int color) {
+        int r = Color.red(color);
+        int g = Color.green(color);
+        int b = Color.blue(color);
+        int grey = Math.round(r * 0.299f + g * 0.587f + b * 0.114f);
+        return mix(color, Color.rgb(grey, grey, grey), 0.8f);
     }
 
     public static int mix(int a, int b, float t) {

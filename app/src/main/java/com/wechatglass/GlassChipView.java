@@ -80,10 +80,13 @@ final class GlassChipView extends View {
             canvas.drawRoundRect(0.6f, 0.6f, getWidth() - 0.6f, getHeight() - 0.6f,
                     radius, radius, strokePaint);
         }
-        // Faint dye ON TOP of the glass, under icon/text: white light, black dark.
+        // Dye ON TOP of the glass, under icon/text: white light, black dark.
+        // At 20% the chat title and icons sat directly on whatever message
+        // scrolled behind them (white text on a white screenshot); 65% keeps
+        // the glass visible and the label readable.
         if (renderer == null || !renderer.isCapturing()) {
             dyePaint.setColor(Ui.isNight(getContext())
-                    ? 0x33000000 : 0x33FFFFFF);
+                    ? 0xA6000000 : 0xA6FFFFFF);
             canvas.drawRoundRect(0f, 0f, getWidth(), getHeight(),
                     radius, radius, dyePaint);
         }
