@@ -92,7 +92,7 @@ final class HomeConversationFilter {
             if (!(conversations instanceof android.widget.BaseAdapter)) {
                 return false;
             }
-            if (!"iq5.a1".equals(conversations.getClass().getName())) {
+            if (!WxNames.isHomeAdapter(conversations.getClass().getName())) {
                 return false;
             }
             // Replacing the adapter resets ListView's scroll state, which on

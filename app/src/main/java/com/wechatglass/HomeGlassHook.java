@@ -182,6 +182,7 @@ final class HomeGlassHook {
     private boolean installed;
     private int attempts;
     private boolean overlaySet;
+    private boolean indexFallbackApplied;
     private long lastGeometrySignature = Long.MIN_VALUE;
 
     private final Runnable tick = new Runnable() {
@@ -202,6 +203,11 @@ final class HomeGlassHook {
                 // WeChat can replace the adapter again on resume; this is a
                 // cheap identity check, not a re-wrap.
                 HomeConversationFilter.attach(homeListView);
+            }
+            if (ConversationIndex.failed() && !indexFallbackApplied) {
+                indexFallbackApplied = true;
+                android.util.Log.w("WeChatGlass", "HL index unavailable; showing WeChat's own list");
+                updateTabState();
             }
             if (categoryPage != null && ConversationIndex.loaded()) {
                 // The index loads on a background thread; the first show() can
@@ -521,7 +527,12 @@ final class HomeGlassHook {
         rightView = findRightView();
         Ui.transparent(leftView);
 
+        // 0x7f0a183e is the 8.0.79 id; resource ids move between WeChat builds
+        // (8.0.80 uses 0x7f0a182a), so fall back to the group's shape.
         View rightGroup = toolbar.findViewById(0x7f0a183e);
+        if (!isActionButtonGroup(rightGroup)) {
+            rightGroup = findActionButtonGroup(toolbar);
+        }
         if (rightGroup instanceof ViewGroup) {
             ViewGroup rg = (ViewGroup) rightGroup;
             if (rg.getChildCount() > 0) {
@@ -998,6 +1009,42 @@ final class HomeGlassHook {
         return best;
     }
 
+    /** The toolbar group that holds the search and "+" buttons, found by shape. */
+    private View findActionButtonGroup(View root) {
+        if (isActionButtonGroup(root)) {
+            return root;
+        }
+        if (root instanceof ViewGroup) {
+            ViewGroup group = (ViewGroup) root;
+            for (int i = 0; i < group.getChildCount(); i++) {
+                View found = findActionButtonGroup(group.getChildAt(i));
+                if (found != null) {
+                    return found;
+                }
+            }
+        }
+        return null;
+    }
+
+    /** At least two direct children, the first two clickable and holding an image. */
+    private boolean isActionButtonGroup(View view) {
+        if (!(view instanceof ViewGroup)) {
+            return false;
+        }
+        ViewGroup group = (ViewGroup) view;
+        if (group.getChildCount() < 2) {
+            return false;
+        }
+        for (int i = 0; i < 2; i++) {
+            View child = group.getChildAt(i);
+            if (!child.isClickable() || child instanceof ImageView
+                    || !(findImage(child) instanceof ImageView)) {
+                return false;
+            }
+        }
+        return true;
+    }
+
     private View findRightView() {
         View menu = Ui.findByClass(toolbar, "androidx.appcompat.widget.ActionMenuView");
         if (menu != null && menu.getWidth() > 0) {
@@ -1304,7 +1351,10 @@ final class HomeGlassHook {
             categoryBar.setVisibility(
                     full && HomeConversationFilter.active() ? View.VISIBLE : View.GONE);
         }
-        boolean nativeList = HookConfig.nativeList(activity);
+        // Fall back to WeChat's own list when the read-only index could not be
+        // built (unknown WeChat build): an empty custom page over an invisible
+        // native list leaves the chats tab blank.
+        boolean nativeList = HookConfig.nativeList(activity) || ConversationIndex.failed();
         if (categoryPage != null) {
             boolean showPage = full && !nativeList;
             categoryPage.setVisibility(showPage ? View.VISIBLE : View.GONE);

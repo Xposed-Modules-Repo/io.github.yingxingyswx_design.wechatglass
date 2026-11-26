@@ -44,6 +44,9 @@ final class ConversationIndex {
     private static final List<Entry> GROUPS = new ArrayList<>();
     private static final List<Entry> SYSTEM = new ArrayList<>();
     private static volatile boolean loaded;
+    private static volatile boolean failed;
+    /** WeChat DB rawQuery(String, String[]) -> Cursor; its name changes per build. */
+    private static volatile java.lang.reflect.Method rawQueryMethod;
     private static volatile int version;
     /** Conversation storage handle, cached so refresh() re-queries without re-resolving. */
     private static Object conversationDb;
@@ -52,6 +55,15 @@ final class ConversationIndex {
     private static volatile String selfUsername = "";
 
     private ConversationIndex() {
+    }
+
+    /**
+     * True once {@link #load} has given up (for example on a WeChat build whose
+     * obfuscated names are not known yet). The home page then keeps WeChat's
+     * own list on screen instead of an empty custom list.
+     */
+    static boolean failed() {
+        return failed;
     }
 
     static boolean loaded() {
@@ -102,8 +114,11 @@ final class ConversationIndex {
             return;
         }
         try {
-            Class<?> serviceClass = de.robv.android.xposed.XposedHelpers
-                    .findClass("l51.i9", cl);
+            Class<?> serviceClass = WxNames.storageAccessor(cl);
+            if (serviceClass == null) {
+                throw new ClassNotFoundException(
+                        "messenger storage accessor (l51.i9 / w41.i9) not found");
+            }
             Object container = de.robv.android.xposed.XposedHelpers
                     .callStaticMethod(serviceClass, "b");
             Object contactStorage = de.robv.android.xposed.XposedHelpers
@@ -236,8 +251,53 @@ final class ConversationIndex {
                         + " name=" + e.display + " conv=" + e.hasConversation);
             }
         } catch (Throwable throwable) {
+            failed = true;
             android.util.Log.e("WeChatGlass", "HL index failed", throwable);
         }
+    }
+
+    /**
+     * Runs a read-only query on WeChat's DB wrapper. The method is found by its
+     * shape (String, String[]) -> Cursor, not by name: WeChat 8.0.80 renamed it
+     * from A to B and reused A for a (String, String) -> boolean method.
+     */
+    private static Cursor rawQuery(Object db, String sql) throws Exception {
+        java.lang.reflect.Method m = rawQueryMethod;
+        if (m == null || !m.getDeclaringClass().isInstance(db)) {
+            m = null;
+            // Prefer the DB interface WeChat's storages hold: it declares one
+            // method of this shape, while the implementation may have more.
+            for (Class<?> c = db.getClass(); c != null && m == null; c = c.getSuperclass()) {
+                for (Class<?> i : c.getInterfaces()) {
+                    m = findRawQuery(i.getMethods());
+                    if (m != null) {
+                        break;
+                    }
+                }
+            }
+            if (m == null) {
+                m = findRawQuery(db.getClass().getMethods());
+            }
+            if (m == null) {
+                throw new NoSuchMethodException("rawQuery(String, String[]) on "
+                        + db.getClass().getName());
+            }
+            m.setAccessible(true);
+            rawQueryMethod = m;
+        }
+        return (Cursor) m.invoke(db, sql, null);
+    }
+
+    private static java.lang.reflect.Method findRawQuery(java.lang.reflect.Method[] methods) {
+        for (java.lang.reflect.Method m : methods) {
+            Class<?>[] p = m.getParameterTypes();
+            if (p.length == 2 && p[0] == String.class && p[1] == String[].class
+                    && Cursor.class.isAssignableFrom(m.getReturnType())
+                    && !java.lang.reflect.Modifier.isStatic(m.getModifiers())) {
+                return m;
+            }
+        }
+        return null;
     }
 
     private static int countPinned(List<Entry> list) {
@@ -263,8 +323,7 @@ final class ConversationIndex {
     private static void logCount(Object db, String label, String sql) {
         Cursor cursor = null;
         try {
-            cursor = (Cursor) de.robv.android.xposed.XposedHelpers
-                    .callMethod(db, "A", sql, null);
+            cursor = rawQuery(db, sql);
             if (cursor != null && cursor.moveToFirst()) {
                 android.util.Log.i("WeChatGlass", "HL count " + label + "=" + cursor.getInt(0));
             }
@@ -284,8 +343,7 @@ final class ConversationIndex {
         List<Entry> out = new ArrayList<>();
         Cursor cursor = null;
         try {
-            cursor = (Cursor) de.robv.android.xposed.XposedHelpers
-                    .callMethod(db, "A", sql, null);
+            cursor = rawQuery(db, sql);
             if (cursor != null) {
                 int userCol = cursor.getColumnIndex("username");
                 int nickCol = cursor.getColumnIndex("nickname");
@@ -329,10 +387,9 @@ final class ConversationIndex {
         Map<String, Entry> out = new HashMap<>();
         Cursor cursor = null;
         try {
-            cursor = (Cursor) de.robv.android.xposed.XposedHelpers.callMethod(db, "A",
-                    "select username, digest, content, msgType, conversationTime,"
+            cursor = rawQuery(db, "select username, digest, content, msgType, conversationTime,"
                             + " unReadCount, flag from rconversation"
-                            + " order by flag desc, conversationTime desc", null);
+                            + " order by flag desc, conversationTime desc");
             if (cursor != null) {
                 int userCol = cursor.getColumnIndex("username");
                 int digestCol = cursor.getColumnIndex("digest");
@@ -385,8 +442,7 @@ final class ConversationIndex {
         Map<String, String> out = new HashMap<>();
         Cursor cursor = null;
         try {
-            cursor = (Cursor) de.robv.android.xposed.XposedHelpers.callMethod(db, "A",
-                    "select username, nickname, conRemark from rcontact", null);
+            cursor = rawQuery(db, "select username, nickname, conRemark from rcontact");
             if (cursor != null) {
                 int userCol = cursor.getColumnIndex("username");
                 int nickCol = cursor.getColumnIndex("nickname");
@@ -579,8 +635,7 @@ final class ConversationIndex {
     private static String querySelfUsername(Object db) {
         Cursor cursor = null;
         try {
-            cursor = (Cursor) de.robv.android.xposed.XposedHelpers.callMethod(
-                    db, "A", "select value from userinfo where id=2 and type=3 limit 1", null);
+            cursor = rawQuery(db, "select value from userinfo where id=2 and type=3 limit 1");
             if (cursor != null && cursor.moveToFirst()) {
                 String value = cursor.getString(0);
                 return value == null ? "" : value;
