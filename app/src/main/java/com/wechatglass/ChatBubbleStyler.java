@@ -531,9 +531,8 @@ final class ChatBubbleStyler {
             int rightMargin = screen - (bl[0] + bubble.getWidth());
             outgoing = bl[0] > rightMargin;
         }
-        M3ColorScheme scheme = M3ColorScheme.forContext(context, true);
-        int color = scheme.primary;
-        int textColor = scheme.onPrimary;
+        int color = bubbleColor(context, outgoing);
+        int textColor = bubbleTextColor(context, outgoing);
 
         View cur = target;
         while (cur != null && cur != bubble) {
@@ -1694,6 +1693,22 @@ final class ChatBubbleStyler {
         return best;
     }
 
+    /**
+     * Bubble fill per docs/GoogleChat-UI-Spec.md: sent messages use the primary
+     * container, received ones the highest surface container, both from the
+     * palette of the current day/night mode. Painting every bubble with the
+     * dark palette's primary made sent and received messages look the same.
+     */
+    private static int bubbleColor(Context context, boolean outgoing) {
+        M3ColorScheme scheme = M3ColorScheme.forContext(context);
+        return outgoing ? scheme.primaryContainer : scheme.surfaceContainerHighest;
+    }
+
+    private static int bubbleTextColor(Context context, boolean outgoing) {
+        M3ColorScheme scheme = M3ColorScheme.forContext(context);
+        return outgoing ? scheme.onPrimaryContainer : scheme.onSurface;
+    }
+
     private static boolean isOutgoingByAvatar(View avatar, int screen) {
         if (avatar == null) {
             return false;
@@ -2007,11 +2022,10 @@ final class ChatBubbleStyler {
             outgoing = loc[0] > screen - (loc[0] + card.getWidth());
         }
 
-        // Transaction/red-packet cards always use the selected dark-palette
-        // primary role, regardless of the current page brightness.
-        M3ColorScheme cardScheme = M3ColorScheme.forContext(context, true);
-        int color = cardScheme.primary;
-        int textColor = cardScheme.onPrimary;
+        // Cards (files, links, transfers) share the text bubbles' colours so a
+        // sent card and a sent message read as the same side of the chat.
+        int color = bubbleColor(context, outgoing);
+        int textColor = bubbleTextColor(context, outgoing);
         float radius = M3Theme.dpF(context, M3Shape.LARGE_INCREASED);
         float tail = M3Theme.dpF(context, 7f);
         BubbleDrawable shape = new BubbleDrawable(color, radius, tail, outgoing);
@@ -2062,8 +2076,7 @@ final class ChatBubbleStyler {
             media.getLocationOnScreen(loc);
             outgoing = loc[0] > screen - (loc[0] + media.getWidth());
         }
-        M3ColorScheme scheme = M3ColorScheme.forContext(context, true);
-        int color = scheme.primary;
+        int color = bubbleColor(context, outgoing);
         float radius = M3Theme.dpF(context, M3Shape.LARGE_INCREASED);
         float tail = M3Theme.dpF(context, 7f);
         // The bubble is the media's own background, grown past the media's bounds

@@ -84,7 +84,9 @@ final class HomeCategoryBar extends FrameLayout {
 
         indicator = new View(context);
         GradientDrawable pill = new GradientDrawable();
-        pill.setColor(scheme.primary);
+        // M3 segmented/selection indicator: secondary container, the same tone
+        // as the bottom navigation's active pill, instead of a saturated primary.
+        pill.setColor(scheme.secondaryContainer);
         pill.setCornerRadius(Ui.dp(context, (HEIGHT_DP - 6) / 2f));
         indicator.setBackground(pill);
         addView(indicator, new LayoutParams(0, 0));
@@ -171,7 +173,7 @@ final class HomeCategoryBar extends FrameLayout {
             TextView tab = tabs[i];
             boolean selected = i == mode;
             tab.setTextColor(selected
-                    ? scheme.onPrimary
+                    ? scheme.onSecondaryContainer
                     : (night ? 0xFFE8E8E8 : 0xFF333333));
             tab.setTypeface(null, selected
                     ? android.graphics.Typeface.BOLD : android.graphics.Typeface.NORMAL);

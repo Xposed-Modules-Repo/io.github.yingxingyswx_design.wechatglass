@@ -1198,10 +1198,13 @@ final class HomeGlassHook {
         if (drawable == null) {
             return null;
         }
-        drawable = drawable.mutate();
-        if (Build.VERSION.SDK_INT >= 21) {
-            drawable.setTint(night ? Color.WHITE : 0xFF1A1A1A);
-        }
+        // Copy before recolouring: the drawable is shared with WeChat's own
+        // (hidden) button. A colour filter wins over WeChat's icon tinting,
+        // which kept the search / + icons black on the dark theme.
+        Drawable.ConstantState state = drawable.getConstantState();
+        drawable = state != null ? state.newDrawable().mutate() : drawable.mutate();
+        drawable.setColorFilter(new android.graphics.PorterDuffColorFilter(
+                night ? Color.WHITE : 0xFF1A1A1A, android.graphics.PorterDuff.Mode.SRC_IN));
         return drawable;
     }
 
@@ -1269,7 +1272,11 @@ final class HomeGlassHook {
         applyBottomTabTheme(null, Math.max(0, bottomTab));
     }
 
-    /** Status/navigation bars follow the same theme as the switcher pill. */
+    /**
+     * The home page is edge to edge: keep the system bars transparent so the
+     * floating top bar sits on the page itself. Filling them with the primary
+     * colour painted a solid green block above the bar on every cold start.
+     */
     private void applySystemBars() {
         if (activity == null) {
             return;
@@ -1277,7 +1284,7 @@ final class HomeGlassHook {
         try {
             com.wechatglass.m3.M3ColorScheme scheme =
                     com.wechatglass.m3.M3Theme.colors(activity);
-            int color = scheme.primary;
+            int color = Color.TRANSPARENT;
             android.view.Window window = activity.getWindow();
             window.addFlags(android.view.WindowManager.LayoutParams
                     .FLAG_DRAWS_SYSTEM_BAR_BACKGROUNDS);

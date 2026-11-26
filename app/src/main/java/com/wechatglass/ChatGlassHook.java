@@ -310,6 +310,9 @@ final class ChatGlassHook {
 
         if (actionBar != null) {
             setupTopBar();
+            // Messages scroll under the transparent status bar; without the
+            // scrim they collide with the clock and status icons.
+            ensureStatusScrim();
             renderer.addClient(backChip);
             renderer.addClient(titleChip);
             renderer.addClient(menuChip);
